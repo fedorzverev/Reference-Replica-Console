@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-base-3.13"]
+modules = ["nodejs-24", "python-base-3.13", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -21,4 +21,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "xcbuild"]
+packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "lcms2", "libimagequant", "libjpeg", "libjpeg_turbo", "libtiff", "libwebp", "libxcrypt", "mupdf", "openjpeg", "swig", "tcl", "tk", "xcbuild", "zlib"]
+
+[userenv]
+
+[userenv.shared]
+STORE_ADMIN_EMAIL = "ivanglebov138@gmail.com"

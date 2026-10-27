@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API каталога электроники и панели управления магазином
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: storefront
+    description: Публичный каталог и оформление заказа
+  - name: admin
+    description: Управление магазином
 paths:
   /healthz:
     get:
@@ -24,6 +28,219 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /store/products:
+    get:
+      operationId: listStoreProducts
+      tags: [storefront]
+      summary: Показать товары витрины
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { type: string }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Список доступных товаров
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+  /store/orders:
+    post:
+      operationId: createStoreOrder
+      tags: [storefront]
+      summary: Оформить заказ
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderInput" }
+      responses:
+        "201":
+          description: Созданный заказ
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "400":
+          description: Ошибка в данных заказа
+  /admin/dashboard:
+    get:
+      operationId: getAdminDashboard
+      tags: [admin]
+      summary: Сводка магазина для администратора
+      responses:
+        "200":
+          description: Показатели и последние заказы
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "401":
+          description: Требуется вход администратора
+  /admin/products:
+    get:
+      operationId: listAdminProducts
+      tags: [admin]
+      summary: Показать товары для управления
+      responses:
+        "200":
+          description: Список товаров
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+        "401":
+          description: Требуется вход администратора
+    post:
+      operationId: createAdminProduct
+      tags: [admin]
+      summary: Добавить товар
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+      responses:
+        "201":
+          description: Созданный товар
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "400":
+          description: Ошибка в данных товара
+        "401":
+          description: Требуется вход администратора
+  /admin/products/{id}:
+    patch:
+      operationId: updateAdminProduct
+      tags: [admin]
+      summary: Обновить товар
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductUpdate" }
+      responses:
+        "200":
+          description: Обновлённый товар
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401":
+          description: Требуется вход администратора
+        "404":
+          description: Товар не найден
+    delete:
+      operationId: deleteAdminProduct
+      tags: [admin]
+      summary: Удалить товар
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Товар удалён
+        "401":
+          description: Требуется вход администратора
+        "404":
+          description: Товар не найден
+  /admin/orders:
+    get:
+      operationId: listAdminOrders
+      tags: [admin]
+      summary: Показать заказы
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+      responses:
+        "200":
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Order" }
+        "401":
+          description: Требуется вход администратора
+  /admin/orders/{id}:
+    patch:
+      operationId: updateAdminOrder
+      tags: [admin]
+      summary: Изменить статус заказа
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderUpdate" }
+      responses:
+        "200":
+          description: Обновлённый заказ
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "401":
+          description: Требуется вход администратора
+        "404":
+          description: Заказ не найден
+  /admin/customers:
+    get:
+      operationId: listAdminCustomers
+      tags: [admin]
+      summary: Показать покупателей
+      responses:
+        "200":
+          description: Список покупателей
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Customer" }
+        "401":
+          description: Требуется вход администратора
+  /admin/customers/{id}:
+    patch:
+      operationId: updateAdminCustomer
+      tags: [admin]
+      summary: Изменить данные покупателя
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerUpdate" }
+      responses:
+        "200":
+          description: Обновлённый покупатель
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "401":
+          description: Требуется вход администратора
+        "404":
+          description: Покупатель не найден
 components:
   schemas:
     HealthStatus:
@@ -33,4 +250,130 @@ components:
           type: string
       required:
         - status
+    Product:
+      type: object
+      required: [id, name, brand, category, price, imageUrl, description, stock, isNew, featured]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        brand: { type: string }
+        category: { type: string }
+        price: { type: integer }
+        oldPrice: { type: [integer, "null"] }
+        imageUrl: { type: string }
+        description: { type: string }
+        stock: { type: integer }
+        badge: { type: [string, "null"] }
+        isNew: { type: boolean }
+        featured: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      required: [name, brand, category, price, imageUrl, description, stock]
+      properties:
+        name: { type: string, minLength: 1 }
+        brand: { type: string, minLength: 1 }
+        category: { type: string, minLength: 1 }
+        price: { type: integer, minimum: 0 }
+        oldPrice: { type: [integer, "null"] }
+        imageUrl: { type: string }
+        description: { type: string }
+        stock: { type: integer, minimum: 0 }
+        badge: { type: [string, "null"] }
+        isNew: { type: boolean }
+        featured: { type: boolean }
+    ProductUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        brand: { type: string, minLength: 1 }
+        category: { type: string, minLength: 1 }
+        price: { type: integer, minimum: 0 }
+        oldPrice: { type: [integer, "null"] }
+        imageUrl: { type: string }
+        description: { type: string }
+        stock: { type: integer, minimum: 0 }
+        badge: { type: [string, "null"] }
+        isNew: { type: boolean }
+        featured: { type: boolean }
+    OrderStatus:
+      type: string
+      enum: [new, confirmed, shipped, completed, cancelled]
+    OrderItem:
+      type: object
+      required: [productId, name, price, quantity]
+      properties:
+        productId: { type: integer }
+        name: { type: string }
+        price: { type: integer }
+        quantity: { type: integer }
+    OrderInputItem:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId: { type: integer }
+        quantity: { type: integer, minimum: 1 }
+    OrderInput:
+      type: object
+      required: [customerName, email, phone, address, items]
+      properties:
+        customerName: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        phone: { type: string, minLength: 1 }
+        address: { type: string, minLength: 1 }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/OrderInputItem" }
+    OrderUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/OrderStatus" }
+    Order:
+      type: object
+      required: [id, customerName, email, phone, address, total, status, items, createdAt]
+      properties:
+        id: { type: integer }
+        customerName: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        address: { type: string }
+        total: { type: integer }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/OrderItem" }
+        createdAt: { type: string, format: date-time }
+    Customer:
+      type: object
+      required: [id, name, email, phone, ordersCount, spent, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        ordersCount: { type: integer }
+        spent: { type: integer }
+        createdAt: { type: string, format: date-time }
+        lastOrderAt: { type: [string, "null"], format: date-time }
+    CustomerUpdate:
+      type: object
+      required: [name, email, phone]
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        phone: { type: string }
+    Dashboard:
+      type: object
+      required: [totalRevenue, ordersCount, customersCount, productsCount, newOrdersCount, recentOrders]
+      properties:
+        totalRevenue: { type: integer }
+        ordersCount: { type: integer }
+        customersCount: { type: integer }
+        productsCount: { type: integer }
+        newOrdersCount: { type: integer }
+        recentOrders:
+          type: array
+          items: { $ref: "#/components/schemas/Order" }
 
