@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Магазин электроники"
+description = "Интернет-магазин электроники по визуальному референсу: каталог, корзина и личный кабинет администратора для управления товарами, заказами и пользователями."
+version = "1.0.0"
+id = "artifacts/electronics-storefront"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21233
+
+[services.development]
+run = "pnpm --filter @workspace/electronics-storefront run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/electronics-storefront", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/electronics-storefront/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21233"
+BASE_PATH = "/"
