@@ -4,14 +4,37 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "API server (dev)",
-      "cwd": "${workspaceFolder}",
+      "name": "API server (debug)",
+      "cwd": "${workspaceFolder}/artifacts/api-server",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@workspace/api-server", "run", "dev"],
-      "env": { "PORT": "5000", "NODE_ENV": "development" },
-      "envFile": "${workspaceFolder}/.env",
+      "runtimeArgs": ["run", "build"],
       "console": "integratedTerminal",
+      "serverReadyAction": {
+        "pattern": "\"port\":([0-9]+)",
+        "uriFormat": "http://localhost:%s/api/healthz",
+        "action": "openExternally"
+      },
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach to API (--inspect=9229)",
+      "port": 9229,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Storefront in Chrome",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/artifacts/electronics-storefront/src"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "API + Chrome",
+      "configurations": ["API server (debug)", "Storefront in Chrome"]
     }
   ]
 }
