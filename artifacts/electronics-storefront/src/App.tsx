@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp, Show, useClerk } from '@clerk/react';
-import { publishableKeyFromHost } from '@clerk/react/internal';
-import { shadcn } from '@clerk/themes';
 import {
   useCreateAdminProduct, useCreateStoreOrder, useDeleteAdminProduct,
   useGetAdminDashboard, useHealthCheck, useListAdminCustomers,
@@ -23,7 +20,7 @@ import {
   LayoutDashboard, Boxes, ClipboardList, Users, Pencil, Trash2, PlusCircle,
   RefreshCw, ChartNoAxesCombined,
 } from 'lucide-react';
-import { Link, Redirect, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
+import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -32,27 +29,6 @@ import type { ReactNode } from 'react';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: 1 } } });
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-function stripBase(path: string) { return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path; }
-if (!clerkPubKey) throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in .env file');
-
-const appearance = {
-  theme: shadcn, cssLayerName: 'clerk',
-  options: { logoPlacement: 'inside' as const, logoLinkUrl: basePath || '/', logoImageUrl: `${window.location.origin}${basePath}/logo.svg` },
-  variables: { colorPrimary: '#8f45d6', colorForeground: '#211f24', colorMutedForeground: '#6f6a75', colorDanger: '#c54343', colorBackground: '#fbfafc', colorInput: '#ffffff', colorInputForeground: '#211f24', colorNeutral: '#dedbe2', fontFamily: 'DM Sans', borderRadius: '10px' },
-  elements: {
-    rootBox: 'w-full flex justify-center', cardBox: 'bg-[#fbfafc] rounded-2xl w-[440px] max-w-full overflow-hidden',
-    card: '!shadow-none !border-0 !bg-transparent !rounded-none', footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
-    headerTitle: 'text-[#211f24] font-bold', headerSubtitle: 'text-[#6f6a75]', socialButtonsBlockButtonText: 'text-[#29252e]',
-    formFieldLabel: 'text-[#29252e]', footerActionLink: 'text-[#7839b8]', footerActionText: 'text-[#6f6a75]',
-    dividerText: 'text-[#6f6a75]', identityPreviewEditButton: 'text-[#7839b8]', formFieldSuccessText: 'text-[#24754d]',
-    alertText: 'text-[#29252e]', logoBox: 'rounded-md', logoImage: 'max-h-10', socialButtonsBlockButton: 'border border-[#dedbe2] rounded-lg',
-    formButtonPrimary: 'bg-[#8f45d6] hover:bg-[#7839b8] rounded-lg', formFieldInput: 'border-[#dedbe2] rounded-lg',
-    footerAction: 'text-[#6f6a75]', dividerLine: 'bg-[#dedbe2]', alert: 'rounded-lg', otpCodeFieldInput: 'rounded-md',
-    formFieldRow: 'gap-2', main: 'gap-4',
-  },
-};
 const rub = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
 const dateRu = (value?: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) : '—';
 const image = (name: string) => `/images/${name}.webp`;
@@ -73,7 +49,6 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
 }
 function ShopHeader({ cartCount, onCart, search, onSearch, admin = false }: { cartCount: number; onCart: () => void; search?: string; onSearch?: (v: string) => void; admin?: boolean }) {
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [, setLocation] = useLocation();
   return <header className="store-header">
     <div className="header-main">
       <BrandMark />
@@ -83,7 +58,7 @@ function ShopHeader({ cartCount, onCart, search, onSearch, admin = false }: { ca
         <button type="submit" aria-label="Искать" data-testid="button-search"><ArrowRight size={16} /></button>
       </form>
       <div className="header-actions">
-        <button className="header-icon" onClick={() => setLocation('/sign-in')} aria-label="Личный кабинет" data-testid="button-account"><UserRound size={18} /><span>Войти</span></button>
+        <Link href="/account" className="header-icon" aria-label="Личный кабинет" data-testid="button-account"><UserRound size={18} /><span>Кабинет</span></Link>
         <button className="header-icon" onClick={onCart} aria-label={`Корзина: ${cartCount}`} data-testid="button-cart"><ShoppingBag size={18} /><span>Корзина</span>{cartCount > 0 && <b className="cart-count">{cartCount}</b>}</button>
         {admin && <Link href="/admin" className="admin-shortcut">Панель</Link>}
       </div>
@@ -230,22 +205,17 @@ function Storefront() {
   </main>;
 }
 
-function ClerkCacheInvalidator() {
-  const { addListener } = useClerk(); const client = useQueryClient();
-  const previous = useRef<string | null | undefined>(undefined);
-  useEffect(() => addListener(({ user }) => { const id = user?.id ?? null; if (previous.current !== undefined && previous.current !== id) client.clear(); previous.current = id; }), [addListener, client]);
-  return null;
+function AccountPage() {
+  return <main className="storefront"><div className="shop-frame"><ShopHeader cartCount={0} onCart={() => {}} /><section className="new-section shop-inner" id="account"><div className="section-head"><div><span className="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span><h2 className="section-title">Вход временно отключён</h2></div></div><p style={{ maxWidth: 560 }}>Авторизация через Clerk удалена из проекта, поэтому личный кабинет недоступен. Покупки можно оформлять как гость — через корзину.</p><div style={{ marginTop: 18 }}><Link href="/" className="button-dark">Вернуться в каталог</Link></div></section></div></main>;
 }
-function SignInPage() { return <div className="auth-screen"><div className="auth-brand"><BrandMark /><p>Вход в личный кабинет<br />Техно. Поинт</p></div><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>; }
-function SignUpPage() { return <div className="auth-screen"><div className="auth-brand"><BrandMark /><p>Создайте аккаунт<br />Техно. Поинт</p></div><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>; }
 
 const adminLinks = [{ href: '/admin', label: 'Обзор', icon: LayoutDashboard }, { href: '/admin/products', label: 'Товары', icon: Boxes }, { href: '/admin/orders', label: 'Заказы', icon: ClipboardList }, { href: '/admin/customers', label: 'Клиенты', icon: Users }];
 function AdminShell({ children, current }: { children: ReactNode; current: string }) {
-  const { signOut } = useClerk(); const [, setLocation] = useLocation();
-  return <div className="admin-layout"><aside className="admin-sidebar"><BrandMark compact /><div className="admin-label">УПРАВЛЕНИЕ</div><nav>{adminLinks.map(l => <Link href={l.href} key={l.href} className={`admin-nav-link ${current === l.href ? 'active' : ''}`} data-testid={`nav-${l.label.toLowerCase()}`}><l.icon size={18} />{l.label}{l.href === '/admin/orders' && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><div className="admin-profile"><span className="profile-avatar">ТП</span><span><strong>Техно. Поинт</strong><small>Администратор</small></span></div><button className="signout-button" onClick={() => signOut({ redirectUrl: basePath || '/' })}><LogOut size={16} /> Выйти</button><Link className="back-to-store" href="/"><ArrowLeft size={15} /> На витрину</Link></div></aside><main className="admin-main"><header className="admin-topbar"><span>Техно. Поинт <i>/</i> <b>{adminLinks.find(l => l.href === current)?.label}</b></span><Link href="/" className="view-store-link">Открыть витрину <ArrowUpRight size={15} /></Link></header><div className="admin-content">{children}</div></main></div>;
+  const [, setLocation] = useLocation();
+  return <div className="admin-layout"><aside className="admin-sidebar"><BrandMark compact /><div className="admin-label">УПРАВЛЕНИЕ</div><nav>{adminLinks.map(l => <Link href={l.href} key={l.href} className={`admin-nav-link ${current === l.href ? 'active' : ''}`} data-testid={`nav-${l.label.toLowerCase()}`}><l.icon size={18} />{l.label}{l.href === '/admin/orders' && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><div className="admin-profile"><span className="profile-avatar">ТП</span><span><strong>Техно. Поинт</strong><small>Администратор</small></span></div><button className="signout-button" onClick={() => setLocation('/')}><LogOut size={16} /> Выйти</button><Link className="back-to-store" href="/"><ArrowLeft size={15} /> На витрину</Link></div></aside><main className="admin-main"><header className="admin-topbar"><span>Техно. Поинт <i>/</i> <b>{adminLinks.find(l => l.href === current)?.label}</b></span><Link href="/" className="view-store-link">Открыть витрину <ArrowUpRight size={15} /></Link></header><div className="admin-content">{children}</div></main></div>;
 }
 function AdminGuard({ current, children }: { current: string; children: ReactNode }) {
-  return <><Show when="signed-in"><AdminShell current={current}>{children}</AdminShell></Show><Show when="signed-out"><Redirect to="/sign-in" /></Show></>;
+  return <AdminShell current={current}>{children}</AdminShell>;
 }
 function AdminTitle({ eyebrow, title, action }: { eyebrow: string; title: string; action?: ReactNode }) { return <div className="admin-page-title"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{action}</div>; }
 function StatCard({ label, value, note, icon: Icon, tone }: { label: string; value: string; note: string; icon: typeof ShoppingBag; tone: string }) {
@@ -326,20 +296,15 @@ function AdminCustomers() {
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
-function ClerkRoutes() {
-  const [, setLocation] = useLocation();
-  return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={appearance} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}
-    localization={{ signIn: { start: { title: 'С возвращением', subtitle: 'Войдите в аккаунт Техно. Поинт' } }, signUp: { start: { title: 'Создайте аккаунт', subtitle: 'Покупайте технику с удобством' } } }}
-    routerPush={to => setLocation(stripBase(to))} routerReplace={to => setLocation(stripBase(to), { replace: true })}>
-    <QueryClientProvider client={queryClient}><ClerkCacheInvalidator /><RoutedErrorBoundary><Switch>
-      <Route path="/" component={Storefront} />
-      <Route path="/sign-in/*?" component={SignInPage} /><Route path="/sign-up/*?" component={SignUpPage} />
-      <Route path="/admin" component={AdminDashboard} /><Route path="/admin/products" component={AdminProducts} /><Route path="/admin/orders" component={AdminOrders} /><Route path="/admin/customers" component={AdminCustomers} />
-      <Route component={NotFound} />
-    </Switch></RoutedErrorBoundary><Toaster /></QueryClientProvider>
-  </ClerkProvider>;
+function AppRoutes() {
+  return <QueryClientProvider client={queryClient}><RoutedErrorBoundary><Switch>
+    <Route path="/" component={Storefront} />
+    <Route path="/account" component={AccountPage} />
+    <Route path="/admin" component={AdminDashboard} /><Route path="/admin/products" component={AdminProducts} /><Route path="/admin/orders" component={AdminOrders} /><Route path="/admin/customers" component={AdminCustomers} />
+    <Route component={NotFound} />
+  </Switch></RoutedErrorBoundary><Toaster /></QueryClientProvider>;
 }
 function App() {
-  return <TooltipProvider><WouterRouter base={basePath}><ClerkRoutes /></WouterRouter></TooltipProvider>;
+  return <TooltipProvider><WouterRouter base={basePath}><AppRoutes /></WouterRouter></TooltipProvider>;
 }
 export default App;
