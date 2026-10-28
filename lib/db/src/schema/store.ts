@@ -44,6 +44,13 @@ export const customersTable = pgTable("store_customers", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   phone: text("phone").notNull(),
+  // Авторизация: пароль (scrypt hash), способ входа, OAuth-провайдеры
+  passwordHash: text("password_hash"),
+  authProvider: text("auth_provider").notNull().default("email"), // email | phone | google | apple
+  googleId: text("google_id").unique(),
+  appleId: text("apple_id").unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  phoneVerified: boolean("phone_verified").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -71,6 +78,26 @@ export const ordersTable = pgTable("store_orders", {
     .$onUpdate(() => new Date()),
 });
 
+export const questionsTable = pgTable("store_questions", {
+  id: serial("id").primaryKey(),
+  // Автор может быть гостем (без аккаунта) — тогда customerId пуст
+  customerId: integer("customer_id").references(() => customersTable.id),
+  authorName: text("author_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  subject: text("subject").notNull().default("question"), // question | feedback | complaint
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"), // new | answered | closed
+  answer: text("answer"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
 export const insertProductSchema = createInsertSchema(productsTable).omit({
   id: true,
   createdAt: true,
@@ -89,9 +116,17 @@ export const insertOrderSchema = createInsertSchema(ordersTable).omit({
   updatedAt: true,
 });
 
+export const insertQuestionSchema = createInsertSchema(questionsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof productsTable.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customersTable.$inferSelect;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof ordersTable.$inferSelect;
+export type InsertQuestion = z.infer<typeof insertQuestionSchema>;
+export type Question = typeof questionsTable.$inferSelect;

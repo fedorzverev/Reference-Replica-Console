@@ -4,11 +4,14 @@ import {
   CreateAdminProductBody,
   CreateAdminProductResponse,
   DeleteAdminProductParams,
+  DeleteAdminQuestionParams,
   GetAdminDashboardResponse,
   ListAdminCustomersResponse,
   ListAdminOrdersQueryParams,
   ListAdminOrdersResponse,
   ListAdminProductsResponse,
+  ListStoreQuestionsQueryParams,
+  ListStoreQuestionsResponse,
   UpdateAdminCustomerBody,
   UpdateAdminCustomerParams,
   UpdateAdminCustomerResponse,
@@ -18,12 +21,16 @@ import {
   UpdateAdminProductBody,
   UpdateAdminProductParams,
   UpdateAdminProductResponse,
+  UpdateAdminQuestionBody,
+  UpdateAdminQuestionParams,
+  UpdateAdminQuestionResponse,
 } from "@workspace/api-zod";
 import {
   customersTable,
   db,
   ordersTable,
   productsTable,
+  questionsTable,
 } from "@workspace/db";
 import requireStoreAdmin from "../middlewares/requireStoreAdmin";
 
@@ -328,6 +335,72 @@ router.patch("/admin/customers/:id", async (req, res): Promise<void> => {
       lastOrderAt: stats?.lastOrderAt ?? null,
     }),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Вопросы покупателей в админ-панели
+// ---------------------------------------------------------------------------
+
+router.get("/admin/questions", async (req, res): Promise<void> => {
+  const query = ListStoreQuestionsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: query.error.message });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(questionsTable)
+    .where(query.data.status ? eq(questionsTable.status, query.data.status) : undefined)
+    .orderBy(desc(questionsTable.createdAt));
+  res.json(ListStoreQuestionsResponse.parse(rows));
+});
+
+router.patch("/admin/questions/:id", async (req, res): Promise<void> => {
+  const params = UpdateAdminQuestionParams.safeParse(req.params);
+  const parsed = UpdateAdminQuestionBody.safeParse(req.body);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  if (parsed.data.status === undefined && parsed.data.answer === undefined) {
+    res.status(400).json({ error: "Нечего обновлять" });
+    return;
+  }
+  const [question] = await db
+    .update(questionsTable)
+    .set({
+      ...(parsed.data.status ? { status: parsed.data.status } : {}),
+      ...(parsed.data.answer !== undefined ? { answer: parsed.data.answer.trim(), status: "answered" as const } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(questionsTable.id, params.data.id))
+    .returning();
+  if (!question) {
+    res.status(404).json({ error: "Вопрос не найден" });
+    return;
+  }
+  res.json(UpdateAdminQuestionResponse.parse(question));
+});
+
+router.delete("/admin/questions/:id", async (req, res): Promise<void> => {
+  const params = DeleteAdminQuestionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [deleted] = await db
+    .delete(questionsTable)
+    .where(eq(questionsTable.id, params.data.id))
+    .returning({ id: questionsTable.id });
+  if (!deleted) {
+    res.status(404).json({ error: "Вопрос не найден" });
+    return;
+  }
+  res.sendStatus(204);
 });
 
 export default router;
