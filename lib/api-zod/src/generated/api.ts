@@ -64,6 +64,99 @@ export const CreateStoreOrderBody = zod.object({
 })).min(1)
 })
 
+
+/**
+ * Личный кабинет: гостевой вход по e-mail и телефону (без внешних провайдеров авторизации).
+ */
+export const StoreLoginBody = zod.object({
+  "email": zod.string().email(),
+  "phone": zod.string().min(1)
+})
+
+export const CustomerProfile = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "ordersCount": zod.number().int(),
+  "spent": zod.number().int(),
+  "createdAt": zod.coerce.date(),
+  "lastOrderAt": zod.coerce.date().nullish()
+})
+
+export const UpdateCustomerProfileBody = zod.object({
+  "name": zod.string().min(1),
+  "phone": zod.string().min(1)
+})
+
+export const AccountOrderItem = zod.object({
+  "productId": zod.number().int(),
+  "name": zod.string(),
+  "price": zod.number().int(),
+  "quantity": zod.number().int()
+})
+
+export const AccountOrder = zod.object({
+  "id": zod.number().int(),
+  "address": zod.string(),
+  "total": zod.number().int(),
+  "status": zod.enum(['new', 'confirmed', 'shipped', 'completed', 'cancelled']),
+  "items": zod.array(AccountOrderItem),
+  "createdAt": zod.coerce.date()
+})
+
+export const GetStoreAccountOrdersResponse = zod.array(AccountOrder)
+
+export const StoreAccountResponse = zod.object({
+  "customer": CustomerProfile,
+  "orders": zod.array(AccountOrder)
+})
+
+/** ---------- Авторизация: регистрация по e-mail/телефону, Google, Apple ---------- */
+export const AuthSource = zod.enum(['email', 'phone', 'google', 'apple'])
+
+export const RegisterByEmailBody = zod.object({
+  "name": zod.string().min(1),
+  "email": zod.string().email(),
+  "phone": zod.string().min(5),
+  "password": zod.string().min(6)
+})
+
+export const LoginByPasswordBody = zod.object({
+  "identifier": zod.string().min(3), // e-mail или телефон
+  "password": zod.string().min(1)
+})
+
+export const RequestPhoneCodeBody = zod.object({
+  "phone": zod.string().min(5)
+})
+
+export const VerifyPhoneCodeBody = zod.object({
+  "phone": zod.string().min(5),
+  "code": zod.string().length(6)
+})
+
+export const OAuthLoginBody = zod.object({
+  "idToken": zod.string().min(10)
+})
+
+export const AuthSessionResponse = zod.object({
+  "customer": CustomerProfile,
+  "token": zod.string()
+})
+
+export const PhoneCodeSentResponse = zod.object({
+  "sent": zod.boolean(),
+  "devCode": zod.string().nullish()
+})
+
+export const AuthProvidersResponse = zod.object({
+  "googleConfigured": zod.boolean(),
+  "appleConfigured": zod.boolean(),
+  "googleClientId": zod.string().nullish(),
+  "appleClientId": zod.string().nullish()
+})
+
 export const CreateStoreOrderResponse = zod.object({
   "id": zod.number().int(),
   "customerName": zod.string(),
@@ -327,6 +420,55 @@ export const UpdateAdminCustomerResponse = zod.object({
   "spent": zod.number().int(),
   "createdAt": zod.coerce.date(),
   "lastOrderAt": zod.coerce.date().nullish()
+})
+
+/** ---------- Вопросы покупателей (приходят в админ-панель) ---------- */
+export const QuestionSubject = zod.enum(['question', 'feedback', 'complaint'])
+export const QuestionStatus = zod.enum(['new', 'answered', 'closed'])
+
+export const CreateStoreQuestionBody = zod.object({
+  "authorName": zod.string().min(1),
+  "email": zod.string().email(),
+  "phone": zod.string().optional(),
+  "subject": QuestionSubject.default('question'),
+  "message": zod.string().min(5)
+})
+
+export const StoreQuestion = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int().nullish(),
+  "authorName": zod.string(),
+  "email": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "subject": QuestionSubject,
+  "message": zod.string(),
+  "status": QuestionStatus,
+  "answer": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().optional()
+})
+
+export const CreateStoreQuestionResponse = StoreQuestion
+
+export const ListStoreQuestionsQueryParams = zod.object({
+  "status": QuestionStatus.optional()
+})
+
+export const ListStoreQuestionsResponse = zod.array(StoreQuestion)
+
+export const UpdateAdminQuestionParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateAdminQuestionBody = zod.object({
+  "status": QuestionStatus.optional(),
+  "answer": zod.string().min(1).optional()
+})
+
+export const UpdateAdminQuestionResponse = StoreQuestion
+
+export const DeleteAdminQuestionParams = zod.object({
+  "id": zod.coerce.number().int()
 })
 
 

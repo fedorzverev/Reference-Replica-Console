@@ -6,14 +6,21 @@ import {
   useGetAdminDashboard, useHealthCheck, useListAdminCustomers,
   useListAdminOrders, useListAdminProducts, useListStoreProducts,
   useUpdateAdminCustomer, useUpdateAdminOrder, useUpdateAdminProduct,
+  useStoreLogin, useListStoreAccountOrders, useUpdateStoreAccount,
+  useRegisterAccount, useLoginWithPassword, useRequestPhoneCode, useVerifyPhoneCode,
+  useLoginWithGoogle, useLoginWithApple, useLogoutAccount, useAuthProviders, useAuthMe,
+  useCreateStoreQuestion, useListAdminQuestions, useUpdateAdminQuestion, useDeleteAdminQuestion,
+  getListAdminQuestionsQueryKey,
   getGetAdminDashboardQueryKey, getListAdminCustomersQueryKey,
   getListAdminOrdersQueryKey, getListAdminProductsQueryKey,
-  getListStoreProductsQueryKey,
+  getListStoreProductsQueryKey, getListStoreAccountOrdersQueryKey,
+  saveAuthToken, clearAuthToken, readAuthToken, setAuthTokenGetter,
 } from '@workspace/api-client-react';
 import type { Customer, CustomerUpdate, Order, OrderStatus, Product, ProductInput, ProductUpdate } from '@workspace/api-client-react';
+import type { AccountOrder, AuthSessionData, StoreQuestionData } from '@workspace/api-client-react';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, BadgeCheck, Check,
-  ChevronDown, ChevronRight, CircleHelp, CreditCard,
+  ChevronDown, ChevronRight, CircleHelp, CreditCard, MessageSquareText, Send,
   Headphones, LogOut, Menu, Minus, PackageCheck, Plus, Search,
   ShieldCheck, ShoppingBag, ShoppingCart, SlidersHorizontal, Truck, UserRound,
   X, Camera, Gamepad2, Laptop, Watch, Tablet, Smartphone, Wind, Package,
@@ -28,11 +35,23 @@ import NotFound from '@/pages/not-found';
 import type { ReactNode } from 'react';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: 1 } } });
+
+// Передаём токен сессии из localStorage во все API-запросы (Authorization: Bearer)
+setAuthTokenGetter(() => readAuthToken());
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const rub = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
 const dateRu = (value?: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) : '—';
 const image = (name: string) => `/images/${name}.webp`;
 type CartLine = { product: Product; quantity: number };
+type AccountSession = { id: number; email: string; phone: string };
+
+function readAccountSession(): AccountSession | null {
+  try { return JSON.parse(localStorage.getItem('tp-account') || 'null') as AccountSession | null; } catch { return null; }
+}
+function saveAccountSession(session: AccountSession | null) {
+  if (session) localStorage.setItem('tp-account', JSON.stringify(session));
+  else localStorage.removeItem('tp-account');
+}
 
 function useStoredCart(): [CartLine[], (next: CartLine[] | ((prev: CartLine[]) => CartLine[])) => void] {
   const [cart, setCart] = useState<CartLine[]>(() => {
@@ -156,10 +175,47 @@ function ProductDetails({ product, close, add }: { product: Product; close: () =
   </div></div>;
 }
 
+const questionSubjects: Record<string, string> = { question: 'Вопрос', feedback: 'Отзыв', complaint: 'Жалоба' };
+const questionStatusLabels: Record<string, string> = { new: 'Новый', answered: 'Отвечен', closed: 'Закрыт' };
+
+function QuestionDialog({ close }: { close: () => void }) {
+  const known = readAccountSession();
+  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: 'question', message: '' });
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+  const create = useCreateStoreQuestion();
+  function submit(e: FormEvent) {
+    e.preventDefault(); setError('');
+    if (!form.name.trim() || !/^\S+@\S+\.\S+$/.test(form.email) || form.message.trim().length < 5) {
+      setError('Укажите имя, корректный e-mail и текст вопроса (от 5 символов).');
+      return;
+    }
+    create.mutate(
+      { authorName: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() || undefined, subject: form.subject as 'question' | 'feedback' | 'complaint', message: form.message.trim() },
+      { onSuccess: () => setSent(true), onError: (err: unknown) => setError((err as { message?: string })?.message || 'Не удалось отправить вопрос. Попробуйте ещё раз.') },
+    );
+  }
+  return <div className="modal-backdrop"><div className="question-modal modal-scroll" role="dialog" aria-modal="true" aria-label="Задать вопрос">
+    <div className="modal-heading"><div><span className="eyebrow">ПОДДЕРЖКА</span><h2>Задать вопрос магазину</h2></div><button className="icon-button" onClick={close} aria-label="Закрыть"><X /></button></div>
+    {sent ? <div className="question-sent"><BadgeCheck size={34} /><strong>Вопрос отправлен!</strong><p>Мы ответим на {form.email} и опубликуем ответ в админ-панели «Вопросы». Обычно отвечаем в течение рабочего дня.</p><button className="button-dark" onClick={close}>Спасибо, закрыть</button></div>
+    : <form className="editor-form" onSubmit={submit}>
+        <div className="form-pair"><label>Ваше имя<input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Иван" data-testid="input-question-name" /></label>
+          <label>E-mail для ответа<input required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="you@mail.ru" data-testid="input-question-email" /></label></div>
+        <div className="form-pair"><label>Телефон (необязательно)<input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+7 …" data-testid="input-question-phone" /></label>
+          <label>Тип обращения<select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} data-testid="select-question-subject"><option value="question">Вопрос о товаре</option><option value="feedback">Отзыв о магазине</option><option value="complaint">Жалоба / проблема с заказом</option></select></label></div>
+        <label>Сообщение<textarea required rows={5} minLength={5} value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Например: есть ли iPhone 15 Pro в титановом цвете и когда поступит?" data-testid="textarea-question-message" /></label>
+        {known && <p className="form-hint">Вы авторизованы — вопрос будет привязан к вашему личному кабинету.</p>}
+        {error && <p className="form-error">{error}</p>}
+        <div className="editor-actions"><button type="button" className="button-outline" onClick={close}>Отмена</button><button type="submit" className="button-purple" disabled={create.isPending} data-testid="button-question-send"><Send size={15} /> {create.isPending ? 'Отправляем…' : 'Отправить вопрос'}</button></div>
+      </form>}
+  </div></div>;
+}
+
 function Storefront() {
   const [cart, setCart] = useStoredCart();
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [questionOpen, setQuestionOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [details, setDetails] = useState<Product | null>(null);
@@ -197,19 +253,284 @@ function Storefront() {
         <button className="promo-panel promo-blue" onClick={() => { setSearch('iPhone'); document.getElementById('new-products')?.scrollIntoView({ behavior: 'smooth' }); }}><div className="promo-text"><span className="eyebrow">ВРЕМЯ ОБНОВИТЬСЯ</span><strong>Устройства,<br />которые ближе.</strong><span className="promo-link">Смотреть подборку <ArrowRight size={15} /></span></div><img src={image('reference-025')} alt="Смартфон Samsung" /></button>
         <button className="promo-panel promo-violet" onClick={() => { setSearch('Dyson'); document.getElementById('new-products')?.scrollIntoView({ behavior: 'smooth' }); }}><div className="promo-text"><span className="eyebrow">УМНЫЙ ДОМ</span><strong>Домашняя техника<br />нового уровня.</strong><span className="promo-link">Открыть коллекцию <ArrowRight size={15} /></span></div><img src={image('reference-074')} alt="Техника Dyson для дома" /></button>
       </div></section>
-      <footer className="store-footer"><div className="footer-top"><BrandMark compact /><p>Проверенная техника.<br />Понятный сервис.</p><div className="footer-links"><a href="#categories">Каталог</a><a href="#about">О компании</a><a href="#brands">Бренды</a></div><div className="footer-contact"><a href="tel:+78005553535">8 800 555-35-35</a><span>Ежедневно, 9:00–21:00</span></div><Link className="footer-admin" href="/admin">Администратор</Link></div><div className="footer-bottom"><span>© 2025 Техно. Поинт</span><span>Оригинальная техника с гарантией</span><span className="health-indicator"><i className={health.isError ? 'offline' : ''} /> {health.isError ? 'Сервис временно недоступен' : 'Сервис работает'}</span></div></footer>
+      <section id="ask" className="ask-section shop-inner"><div className="ask-card"><div className="ask-text"><span className="eyebrow">ЕСТЬ ВОПРОС?</span><h2 className="section-title">Спросите нас — ответим быстро</h2><p>Не нашли товар, сомневаетесь в выборе или нужна помощь с заказом? Напишите нам: вопрос мгновенно попадёт в панель магазина, и менеджер ответит на вашу почту.</p></div><button className="button-purple ask-button" onClick={() => setQuestionOpen(true)} data-testid="button-open-question"><MessageSquareText size={17} /> Задать вопрос</button></div></section>
+      <footer className="store-footer"><div className="footer-top"><BrandMark compact /><p>Проверенная техника.<br />Понятный сервис.</p><div className="footer-links"><a href="#categories">Каталог</a><a href="#about">О компании</a><a href="#brands">Бренды</a><a href="#ask">Задать вопрос</a></div><div className="footer-contact"><a href="tel:+78005553535">8 800 555-35-35</a><span>Ежедневно, 9:00–21:00</span></div><Link className="footer-admin" href="/admin">Администратор</Link></div><div className="footer-bottom"><span>© 2025 Техно. Поинт</span><span>Оригинальная техника с гарантией</span><span className="health-indicator"><i className={health.isError ? 'offline' : ''} /> {health.isError ? 'Сервис временно недоступен' : 'Сервис работает'}</span></div></footer>
     </div>
     {cartOpen && <CartDrawer cart={cart} setCart={setCart} close={() => setCartOpen(false)} checkout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
     {checkoutOpen && <CheckoutDialog cart={cart} onClose={() => setCheckoutOpen(false)} onComplete={() => setCart([])} />}
+    {questionOpen && <QuestionDialog close={() => setQuestionOpen(false)} />}
     {details && <ProductDetails product={details} close={() => setDetails(null)} add={addToCart} />}
   </main>;
 }
 
-function AccountPage() {
-  return <main className="storefront"><div className="shop-frame"><ShopHeader cartCount={0} onCart={() => {}} /><section className="new-section shop-inner" id="account"><div className="section-head"><div><span className="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span><h2 className="section-title">Вход временно отключён</h2></div></div><p style={{ maxWidth: 560 }}>Авторизация через Clerk удалена из проекта, поэтому личный кабинет недоступен. Покупки можно оформлять как гость — через корзину.</p><div style={{ marginTop: 18 }}><Link href="/" className="button-dark">Вернуться в каталог</Link></div></section></div></main>;
+type AuthMode = 'login' | 'register' | 'phone';
+
+interface GsiNotification { isNotDisplayed: () => boolean; isSkippedMoment: () => boolean }
+interface GsiCredentialResponse { credential?: string }
+interface GoogleAccountsId {
+  initialize: (config: { client_id: string; callback: (resp: GsiCredentialResponse) => void }) => void;
+  prompt: (cb?: (n: GsiNotification) => void) => void;
+}
+declare global { interface Window { google?: { accounts: { id: GoogleAccountsId } } } }
+
+/** Подгружает Google Identity Services, если скрипт ещё не загружен. */
+function ensureGsiScript(): Promise<boolean> {
+  if (window.google?.accounts?.id) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-gsi]');
+    if (existing) { existing.addEventListener('load', () => resolve(Boolean(window.google?.accounts?.id))); existing.addEventListener('error', () => resolve(false)); return; }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.dataset.gsi = '1';
+    script.onload = () => resolve(Boolean(window.google?.accounts?.id));
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+    setTimeout(() => resolve(Boolean(window.google?.accounts?.id)), 8000);
+  });
 }
 
-const adminLinks = [{ href: '/admin', label: 'Обзор', icon: LayoutDashboard }, { href: '/admin/products', label: 'Товары', icon: Boxes }, { href: '/admin/orders', label: 'Заказы', icon: ClipboardList }, { href: '/admin/customers', label: 'Клиенты', icon: Users }];
+function makeDevIdToken(provider: string, email: string, name: string): string {
+  const b64 = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${b64({ alg: 'none', typ: 'JWT' })}.${b64({ sub: `${provider}_dev_${email}`, iss: provider === 'google' ? 'https://accounts.google.com' : 'https://appleid.apple.com', aud: 'dev', email, email_verified: true, name, exp: Math.floor(Date.now() / 1000) + 3600 })}.`;
+}
+
+function GoogleIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.4a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.3-2.1 3.6-5.2 3.6-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1 .7-2.4 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.4a7.2 7.2 0 0 1 0-4.6V6.7H1.4a12 12 0 0 0 0 10.8l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8L20 3.2A12 12 0 0 0 1.4 6.7l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>;
+}
+function AppleIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.05 12.54c-.03-3.02 2.47-4.47 2.58-4.55-1.41-2.06-3.6-2.34-4.37-2.37-1.86-.19-3.63 1.09-4.57 1.09-.94 0-2.4-1.07-3.95-1.04-2.03.03-3.91 1.18-4.95 3-2.11 3.66-.54 9.08 1.52 12.05 1 1.46 2.2 3.1 3.76 3.04 1.51-.06 2.08-.97 3.9-.97s2.33.97 3.92.94c1.62-.03 2.65-1.49 3.64-2.96 1.15-1.7 1.62-3.35 1.65-3.43-.04-.02-3.16-1.21-3.19-4.8zM14.06 3.7c.83-1 1.39-2.4 1.24-3.7-1.2.05-2.65.8-3.51 1.8-.77.89-1.44 2.31-1.26 3.67 1.34.1 2.71-.68 3.53-1.77z"/></svg>;
+}
+
+function AuthScreen({ onAuthed }: { onAuthed: (customer: { id: number; email: string; phone: string }, token?: string) => void }) {
+  const [mode, setMode] = useState<AuthMode>('login');
+  const [error, setError] = useState('');
+  const [phoneStep, setPhoneStep] = useState<'enter' | 'code'>('enter');
+  const [sentPhone, setSentPhone] = useState('');
+  const [devCode, setDevCode] = useState('');
+  const providers = useAuthProviders();
+  const register = useRegisterAccount();
+  const passwordLogin = useLoginWithPassword();
+  const requestCode = useRequestPhoneCode();
+  const verifyCode = useVerifyPhoneCode();
+  const googleLogin = useLoginWithGoogle();
+  const appleLogin = useLoginWithApple();
+
+  function finish() {
+    return (res: AuthSessionData) => {
+      saveAuthToken(res.token);
+      onAuthed({ id: res.customer.id, email: res.customer.email, phone: res.customer.phone }, res.token);
+    };
+  }
+  function fail(err: unknown, fallback: string) {
+    const data = (err as { response?: { data?: { error?: string } } })?.response?.data;
+    setError(data?.error || fallback);
+  }
+
+  async function socialLogin(provider: 'google' | 'apple') {
+    setError('');
+    const clientId = provider === 'google' ? providers.data?.googleClientId : providers.data?.appleClientId;
+    if (provider === 'google' && clientId) {
+      // Боевой режим: настоящий Google Sign-In (GSI)
+      const gsiReady = await ensureGsiScript();
+      if (!gsiReady || !window.google?.accounts?.id) { setError('Не удалось загрузить скрипт Google. Проверьте подключение к интернету.'); return; }
+      let handled = false;
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (resp) => {
+          handled = true;
+          if (resp.credential) googleLogin.mutate(resp.credential, { onSuccess: finish(), onError: (e) => fail(e, 'Не удалось войти через Google') });
+          else setError('Google не вернул данные аккаунта.');
+        },
+      });
+      window.google.accounts.id.prompt((notification) => {
+        if ((notification.isNotDisplayed() || notification.isSkippedMoment()) && !handled) setTimeout(() => { if (!handled) setError('Окно Google не отобразилось. Попробуйте ещё раз.'); }, 500);
+      });
+      return;
+    }
+    if (provider === 'apple' && clientId) {
+      setError('Для входа через Apple нужен настроенный APPLE_CLIENT_ID и кнопка AppleJS. Пока используйте другой способ.');
+      return;
+    }
+    // Dev-режим: OAuth-клиент на сервере не настроен — эмулируем токен, чтобы flow был проверяем локально
+    const mockEmail = provider === 'google' ? 'demo.user@gmail.com' : 'demo.user@icloud.com';
+    const mockName = 'Демо Пользователь';
+    const mutation = provider === 'google' ? googleLogin : appleLogin;
+    mutation.mutate(makeDevIdToken(provider, mockEmail, mockName), { onSuccess: finish(), onError: (e) => fail(e, `Не удалось войти через ${provider === 'google' ? 'Google' : 'Apple'}`) });
+  }
+
+  const pending = register.isPending || passwordLogin.isPending || requestCode.isPending || verifyCode.isPending || googleLogin.isPending || appleLogin.isPending;
+
+  return <section className="account-hero" id="account">
+    <div className="account-intro">
+      <span className="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span>
+      <h1 className="section-title">Хорошо видеть вас снова</h1>
+      <p>Войдите удобным способом: через Google или Apple, по e-mail с паролем или по номеру телефона с кодом из SMS.</p>
+      <ul className="account-perks"><li><PackageCheck size={16} /> История всех заказов</li><li><Truck size={16} /> Статусы доставки онлайн</li><li><ShieldCheck size={16} /> Данные защищены и не передаются третьим лицам</li></ul>
+    </div>
+    <div className="account-login-card" data-testid="auth-card">
+      <div className="auth-tabs" role="tablist">
+        <button role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); }} data-testid="tab-auth-login">Вход</button>
+        <button role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); }} data-testid="tab-auth-register">Регистрация</button>
+        <button role="tab" aria-selected={mode === 'phone'} className={mode === 'phone' ? 'active' : ''} onClick={() => { setMode('phone'); setPhoneStep('enter'); setError(''); }} data-testid="tab-auth-phone">По телефону</button>
+      </div>
+
+      <div className="social-row">
+        <button className="social-button" onClick={() => socialLogin('google')} disabled={pending} data-testid="button-auth-google"><GoogleIcon /> Continue with Google{providers.data && !providers.data.googleConfigured && <em title="OAuth-клиент не настроен — используется dev-режим">dev</em>}</button>
+        <button className="social-button" onClick={() => socialLogin('apple')} disabled={pending} data-testid="button-auth-apple"><AppleIcon /> Continue with Apple{providers.data && !providers.data.appleConfigured && <em title="OAuth-клиент не настроен — используется dev-режим">dev</em>}</button>
+      </div>
+      <div className="auth-divider"><span>или</span></div>
+
+      {mode === 'login' && <form onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); passwordLogin.mutate({ identifier: String(f.get('identifier')), password: String(f.get('password')) }, { onSuccess: finish(), onError: (err) => fail(err, 'Не удалось войти. Проверьте данные.') }); }}>
+        <label>E-mail или телефон<input name="identifier" required placeholder="mail@example.ru" data-testid="input-auth-identifier" /></label>
+        <label>Пароль<input name="password" type="password" required placeholder="••••••" data-testid="input-auth-password" /></label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="button-purple checkout-button" type="submit" disabled={pending} data-testid="button-auth-login-submit">{passwordLogin.isPending ? 'Проверяем данные…' : <>Войти <ArrowRight size={16} /></>}</button>
+      </form>}
+
+      {mode === 'register' && <form onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); register.mutate({ name: String(f.get('name')), email: String(f.get('email')), phone: String(f.get('phone')), password: String(f.get('password')) }, { onSuccess: finish(), onError: (err) => fail(err, 'Не удалось зарегистрироваться.') }); }}>
+        <label>Имя<input name="name" required placeholder="Иван Петров" data-testid="input-auth-name" /></label>
+        <div className="form-pair"><label>E-mail<input name="email" type="email" required placeholder="mail@example.ru" data-testid="input-auth-email" /></label><label>Телефон<input name="phone" required placeholder="+7 900 000-00-00" data-testid="input-auth-phone" /></label></div>
+        <label>Пароль (мин. 6 символов)<input name="password" type="password" required minLength={6} placeholder="Придумайте пароль" data-testid="input-auth-new-password" /></label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="button-purple checkout-button" type="submit" disabled={pending} data-testid="button-auth-register-submit">{register.isPending ? 'Создаём аккаунт…' : <>Зарегистрироваться <ArrowRight size={16} /></>}</button>
+      </form>}
+
+      {mode === 'phone' && (phoneStep === 'enter'
+        ? <form onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); const phone = String(f.get('phone')); requestCode.mutate({ phone }, { onSuccess: (res) => { setSentPhone(phone); setDevCode(res.devCode || ''); setPhoneStep('code'); }, onError: (err) => fail(err, 'Не удалось отправить код.') }); }}>
+            <label>Номер телефона<input name="phone" required placeholder="+7 900 000-00-00" defaultValue={sentPhone} data-testid="input-auth-sms-phone" /></label>
+            {error && <p className="form-error">{error}</p>}
+            <button className="button-purple checkout-button" type="submit" disabled={pending} data-testid="button-auth-send-code">{requestCode.isPending ? 'Отправляем код…' : <>Получить код по SMS <ArrowRight size={16} /></>}</button>
+          </form>
+        : <form onSubmit={(e) => { e.preventDefault(); setError(''); const f = new FormData(e.currentTarget); verifyCode.mutate({ phone: sentPhone, code: String(f.get('code')) }, { onSuccess: finish(), onError: (err) => fail(err, 'Код недействителен или истёк.') }); }}>
+            <p className="auth-sent-note"><BadgeCheck size={15} /> Код отправлен на <b>{sentPhone}</b>. {devCode && <button type="button" className="auth-dev-code" onClick={() => setPhoneStep('enter')} title="Нажмите, чтобы подставить код" data-testid="button-auth-dev-code">SMS-шлюз не подключён · тестовый код: <b>{devCode}</b></button>}</p>
+            <label>6-значный код<input name="code" required inputMode="numeric" pattern="\d{6}" maxLength={6} placeholder="000000" autoFocus data-testid="input-auth-code" /></label>
+            {error && <p className="form-error">{error}</p>}
+            <button className="button-purple checkout-button" type="submit" disabled={pending} data-testid="button-auth-verify-code">{verifyCode.isPending ? 'Проверяем код…' : <>Подтвердить и войти <ArrowRight size={16} /></>}</button>
+            <button type="button" className="auth-linklike" onClick={() => setPhoneStep('enter')} disabled={pending}>Изменить номер</button>
+          </form>)}
+
+      <p className="form-hint"><ShieldCheck size={14} /> Данные защищены и не передаются третьим лицам.</p>
+      <GuestOrderLogin onAuthed={onAuthed} onError={setError} error={error} />
+      <Link href="/" className="account-back">← Вернуться в каталог</Link>
+    </div>
+  </section>;
+}
+
+function GuestOrderLogin({ onAuthed, onError }: { onAuthed: (c: { id: number; email: string; phone: string }, token?: string) => void; onError: (msg: string) => void; error: string }) {
+  const login = useStoreLogin();
+  return <form className="guest-order-form" onSubmit={(e) => {
+    e.preventDefault(); onError('');
+    const f = new FormData(e.currentTarget);
+    login.mutate({ data: { email: String(f.get('email')), phone: String(f.get('phone')) } }, {
+      onSuccess: (res) => { saveAuthToken(res.token); onAuthed({ id: res.customer.id, email: res.customer.email, phone: res.customer.phone }, res.token); },
+      onError: (err) => onError((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Аккаунт по e-mail и телефону не найден.'),
+    });
+  }}>
+    <p className="auth-divider"><span>уже есть заказ?</span></p>
+    <div className="form-pair"><label>E-mail от заказа<input name="email" type="email" required placeholder="mail@example.ru" data-testid="input-guest-email" /></label><label>Телефон от заказа<input name="phone" required placeholder="+7 900 000-00-00" data-testid="input-guest-phone" /></label></div>
+    <button className="auth-linklike" type="submit" disabled={login.isPending} data-testid="button-guest-login">{login.isPending ? 'Проверяем данные…' : 'Войти по данным заказа'}</button>
+  </form>;
+}
+
+function AccountPage() {
+  const client = useQueryClient();
+  const [session, setSession] = useState<AccountSession | null>(() => readAccountSession());
+  const [tab, setTab] = useState<'orders' | 'profile'>('orders');
+  const logoutMutation = useLogoutAccount();
+  const updateProfile = useUpdateStoreAccount();
+  const ordersQuery = useListStoreAccountOrders(session?.id);
+  const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+
+  function onAuthed(customer: AccountSession) {
+    saveAccountSession(customer); setSession(customer); setEditing(false); setError('');
+    client.invalidateQueries({ queryKey: getListStoreAccountOrdersQueryKey(customer.id) });
+  }
+  function logout() {
+    clearAuthToken(); saveAccountSession(null); setSession(null); setEditing(false); setError('');
+    logoutMutation.mutate();
+    client.removeQueries({ queryKey: ['authMe'] });
+  }
+  function saveProfile(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); if (!session) return; setError('');
+    const form = new FormData(e.currentTarget);
+    updateProfile.mutate({ customerId: session.id, data: { name: String(form.get('name')), phone: String(form.get('phone')) } }, {
+      onSuccess: (res) => {
+        const next = { ...session, phone: res.customer.phone };
+        saveAccountSession(next); setSession(next); setEditing(false);
+        client.invalidateQueries({ queryKey: getListStoreAccountOrdersQueryKey(next.id) });
+      },
+      onError: () => setError('Не удалось сохранить изменения. Попробуйте ещё раз.'),
+    });
+  }
+
+  const stats = ordersQuery.data ? {
+    count: ordersQuery.data.length,
+    spent: ordersQuery.data.reduce((sum, o) => sum + o.total, 0),
+    last: ordersQuery.data[0]?.createdAt,
+  } : null;
+
+  return <main className="storefront"><div className="shop-frame page-enter"><div className="shop-inner">
+    <ShopHeader cartCount={0} onCart={() => { window.location.href = '/'; }} />
+    {!session ? <AuthScreen onAuthed={onAuthed} /> : <section className="account-section" id="account">
+      <div className="account-head">
+        <div><span className="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span><h1 className="section-title">Здравствуйте{stats ? '' : ''}</h1></div>
+        <button className="button-outline" onClick={logout} data-testid="button-account-logout"><LogOut size={15} /> Выйти</button>
+      </div>
+      <div className="account-grid">
+        <aside className="account-card account-info">
+          <div className="account-avatar">{(session.email || 'Г').slice(0, 1).toUpperCase()}</div>
+          <strong>{session.email}</strong>
+          <small>{session.phone}</small>
+          {stats && <div className="account-stats"><div><b>{stats.count}</b><span>заказов</span></div><div><b>{rub(stats.spent)}</b><span>потрачено</span></div><div><b>{dateRu(stats.last)}</b><span>последний заказ</span></div></div>}
+          <button className="edit-profile-button" onClick={() => setEditing(v => !v)} data-testid="button-account-edit"><Pencil size={14} /> {editing ? 'Отменить правку' : 'Редактировать профиль'}</button>
+          {editing && <form className="editor-form account-edit-form" onSubmit={saveProfile}>
+            <label>Имя<input name="name" required defaultValue={session.email.split('@')[0]} data-testid="input-account-name" /></label>
+            <label>Телефон<input name="phone" required defaultValue={session.phone} data-testid="input-account-phone-edit" /></label>
+            {error && <p className="form-error">{error}</p>}
+            <button className="button-purple" type="submit" disabled={updateProfile.isPending}>{updateProfile.isPending ? 'Сохраняем…' : 'Сохранить'}</button>
+          </form>}
+        </aside>
+        <div className="account-main">
+          <div className="account-tabs">
+            <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')} data-testid="tab-account-orders">Мои заказы</button>
+            <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')} data-testid="tab-account-profile">Реквизиты и контакты</button>
+          </div>
+          {tab === 'orders' ? <div className="admin-panel account-orders-panel">
+            {ordersQuery.isLoading ? <div className="account-loading"><RefreshCw className="spin" size={18} /> Загружаем историю заказов…</div>
+              : ordersQuery.isError ? <div className="admin-empty"><CircleHelp /><strong>Не удалось загрузить заказы</strong><p>Проверьте подключение и попробуйте снова.</p><button onClick={() => ordersQuery.refetch()}><RefreshCw size={15} /> Повторить</button></div>
+              : !ordersQuery.data?.length ? <div className="admin-empty"><ClipboardList size={24} /><strong>Заказов пока нет</strong><p>Самое время выбрать что-нибудь интересное.</p><Link href="/" className="button-dark">Перейти в каталог</Link></div>
+              : <div className="account-order-list">{ordersQuery.data.map(order => <AccountOrderCard key={order.id} order={order} />)}</div>}
+          </div>
+          : <div className="admin-panel account-orders-panel"><div className="panel-heading"><div><span className="eyebrow">КОНТАКТЫ</span><h2>Данные для доставки</h2></div></div>
+            <div className="account-contacts"><div><strong>E-mail</strong><span>{session.email}</span></div><div><strong>Телефон</strong><span>{session.phone}</span></div><div><strong>Помощь</strong><span><a href="tel:+78005553535">8 800 555-35-35</a>, ежедневно 9:00–21:00</span></div></div>
+            <p className="form-hint" style={{ padding: '0 14px 14px' }}><ShieldCheck size={14} /> Изменить имя и телефон можно кнопкой «Редактировать профиль» слева.</p>
+          </div>}
+        </div>
+      </div>
+      <footer className="store-footer" style={{ marginTop: 30 }}><div className="footer-bottom"><span>© 2025 Техно. Поинт</span><Link href="/" className="account-back">← В каталог</Link></div></footer>
+    </section>}
+  </div></div></main>;
+}
+
+function AccountOrderCard({ order }: { order: AccountOrder }) {
+  const [open, setOpen] = useState(false);
+  return <article className="account-order" data-testid={`account-order-${order.id}`}>
+    <header>
+      <div><span className="order-id">#{String(order.id).padStart(5, '0')}</span><small>{dateRu(order.createdAt)}</small></div>
+      <span className={`status-pill status-${order.status}`}>{statusLabels[order.status] || order.status}</span>
+      <strong>{rub(order.total)}</strong>
+      <button className="account-order-toggle" onClick={() => setOpen(v => !v)} aria-label="Состав заказа">{open ? <Minus size={15} /> : <Plus size={15} />}</button>
+    </header>
+    {open && <div className="account-order-lines">
+      {order.items.map(line => <div key={line.productId} className="account-order-line"><span>{line.name}</span><small>{line.quantity} × {rub(line.price)}</small><b>{rub(line.price * line.quantity)}</b></div>)}
+      <div className="account-order-address"><Truck size={15} /> Доставка: {order.address}</div>
+    </div>}
+  </article>;
+}
+
+const adminLinks = [{ href: '/admin', label: 'Обзор', icon: LayoutDashboard }, { href: '/admin/products', label: 'Товары', icon: Boxes }, { href: '/admin/orders', label: 'Заказы', icon: ClipboardList }, { href: '/admin/customers', label: 'Клиенты', icon: Users }, { href: '/admin/questions', label: 'Вопросы', icon: MessageSquareText }];
 function AdminShell({ children, current }: { children: ReactNode; current: string }) {
   const [, setLocation] = useLocation();
   return <div className="admin-layout"><aside className="admin-sidebar"><BrandMark compact /><div className="admin-label">УПРАВЛЕНИЕ</div><nav>{adminLinks.map(l => <Link href={l.href} key={l.href} className={`admin-nav-link ${current === l.href ? 'active' : ''}`} data-testid={`nav-${l.label.toLowerCase()}`}><l.icon size={18} />{l.label}{l.href === '/admin/orders' && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><div className="admin-profile"><span className="profile-avatar">ТП</span><span><strong>Техно. Поинт</strong><small>Администратор</small></span></div><button className="signout-button" onClick={() => setLocation('/')}><LogOut size={16} /> Выйти</button><Link className="back-to-store" href="/"><ArrowLeft size={15} /> На витрину</Link></div></aside><main className="admin-main"><header className="admin-topbar"><span>Техно. Поинт <i>/</i> <b>{adminLinks.find(l => l.href === current)?.label}</b></span><Link href="/" className="view-store-link">Открыть витрину <ArrowUpRight size={15} /></Link></header><div className="admin-content">{children}</div></main></div>;
@@ -295,12 +616,55 @@ function AdminCustomers() {
     </section></QueryState>{editing && <CustomerEditor customer={editing} close={() => setEditing(null)} pending={update.isPending} save={data => update.mutate({ id: editing.id, data }, { onSuccess: () => { setEditing(null); client.invalidateQueries({ queryKey: getListAdminCustomersQueryKey() }); client.invalidateQueries({ queryKey: getGetAdminDashboardQueryKey() }); } })} />}</AdminGuard>;
 }
 
+function AdminQuestions() {
+  const client = useQueryClient();
+  const [status, setStatus] = useState('');
+  const [replyTo, setReplyTo] = useState<StoreQuestionData | null>(null);
+  const query = useListAdminQuestions(status || undefined);
+  const update = useUpdateAdminQuestion();
+  const remove = useDeleteAdminQuestion();
+  const refresh = () => { client.invalidateQueries({ queryKey: getListAdminQuestionsQueryKey() }); };
+  function mark(q: StoreQuestionData, s: 'new' | 'answered' | 'closed') { update.mutate({ id: q.id, data: { status: s } }, { onSuccess: refresh }); }
+  function deleteQuestion(q: StoreQuestionData) { if (window.confirm('Удалить этот вопрос?')) remove.mutate(q.id, { onSuccess: refresh }); }
+  const questions = query.data || [];
+  return <AdminGuard current="/admin/questions"><AdminTitle eyebrow="ОБРАЩЕНИЯ КЛИЕНТОВ" title="Вопросы" action={<label className="select-filter"><SlidersHorizontal size={15} /><select value={status} onChange={e => setStatus(e.target.value)} aria-label="Фильтр вопросов"><option value="">Все обращения</option>{Object.entries(questionStatusLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><ChevronDown size={14} /></label>} />
+    <QueryState loading={query.isLoading} error={query.isError} retry={() => query.refetch()}>
+      {questions.length ? <div className="question-list">{questions.map(q => <article key={q.id} className={`question-card status-${q.status}`} data-testid={`row-question-${q.id}`}>
+        <header><span className={`q-subject q-${q.subject}`}>{questionSubjects[q.subject]}</span><strong className="q-author">{q.authorName}</strong><small>{q.email}{q.phone ? `, ${q.phone}` : ''}</small><span className="q-date">{dateRu(q.createdAt)}</span><span className={`status-pill status-${q.status === 'answered' ? 'confirmed' : q.status === 'closed' ? 'completed' : 'new'}`}>{questionStatusLabels[q.status]}</span></header>
+        <p className="q-message">{q.message}</p>
+        {q.answer && <div className="q-answer"><BadgeCheck size={15} /> <span><b>Ответ:</b> {q.answer}</span></div>}
+        <footer className="q-actions">
+          {q.status !== 'answered' && <button className="button-outline" onClick={() => setReplyTo(q)} data-testid={`button-reply-question-${q.id}`}><Send size={14} /> Ответить</button>}
+          {q.status === 'new' && <button className="edit-customer" onClick={() => mark(q, 'answered')} title="Отметить отвеченным">✓ Отвечен</button>}
+          {q.status !== 'closed' && <button className="edit-customer" onClick={() => mark(q, 'closed')} title="Закрыть обращение">✕ Закрыть</button>}
+          {q.status === 'closed' && <button className="edit-customer" onClick={() => mark(q, 'new')} title="Открыть снова">↺ Открыть</button>}
+          <button className="edit-customer danger" onClick={() => deleteQuestion(q)} aria-label={`Удалить вопрос ${q.id}`}><Trash2 size={15} /></button>
+        </footer>
+      </article>)}</div>
+      : <section className="admin-panel data-panel"><div className="table-empty"><MessageSquareText size={22} /><strong>Обращений пока нет</strong><span>Вопросы с витрины появятся здесь.</span></div></section>}
+    </QueryState>
+    {replyTo && <QuestionReply question={replyTo} close={() => setReplyTo(null)} pending={update.isPending} send={(answer) => update.mutate({ id: replyTo.id, data: { answer, status: 'answered' } }, { onSuccess: () => { setReplyTo(null); refresh(); } })} />}
+  </AdminGuard>;
+}
+
+function QuestionReply({ question, close, send, pending }: { question: StoreQuestionData; close: () => void; send: (answer: string) => void; pending: boolean }) {
+  const [answer, setAnswer] = useState(question.answer || '');
+  return <div className="modal-backdrop"><div className="question-modal modal-scroll" role="dialog" aria-modal="true" aria-label="Ответ на вопрос">
+    <div className="modal-heading"><div><span className="eyebrow">ОТВЕТ КЛИЕНТУ</span><h2>{question.authorName}</h2></div><button className="icon-button" onClick={close} aria-label="Закрыть"><X /></button></div>
+    <div className="q-original"><p className="q-message">{question.message}</p><small>От {dateRu(question.createdAt)} · {question.email}</small></div>
+    <form className="editor-form" onSubmit={e => { e.preventDefault(); if (answer.trim().length >= 2) send(answer.trim()); }}>
+      <label>Текст ответа<textarea required rows={5} value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Здравствуйте! Да, эта модель в наличии…" data-testid="textarea-question-answer" /></label>
+      <div className="editor-actions"><button type="button" className="button-outline" onClick={close}>Отмена</button><button type="submit" className="button-purple" disabled={pending || answer.trim().length < 2} data-testid="button-send-answer"><Send size={15} /> {pending ? 'Отправляем…' : 'Отправить ответ'}</button></div>
+    </form>
+  </div></div>;
+}
+
 function RoutedErrorBoundary({ children }: { children: ReactNode }) { const [location] = useLocation(); return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>; }
 function AppRoutes() {
   return <QueryClientProvider client={queryClient}><RoutedErrorBoundary><Switch>
     <Route path="/" component={Storefront} />
     <Route path="/account" component={AccountPage} />
-    <Route path="/admin" component={AdminDashboard} /><Route path="/admin/products" component={AdminProducts} /><Route path="/admin/orders" component={AdminOrders} /><Route path="/admin/customers" component={AdminCustomers} />
+    <Route path="/admin" component={AdminDashboard} /><Route path="/admin/products" component={AdminProducts} /><Route path="/admin/orders" component={AdminOrders} /><Route path="/admin/customers" component={AdminCustomers} /><Route path="/admin/questions" component={AdminQuestions} />
     <Route component={NotFound} />
   </Switch></RoutedErrorBoundary><Toaster /></QueryClientProvider>;
 }
